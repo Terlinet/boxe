@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,8 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
   final PoseDetector _poseDetector = PoseDetector(
     options: PoseDetectorOptions(mode: PoseDetectionMode.stream),
   );
+  final AudioPlayer _punchPlayer = AudioPlayer();
+  Future<void> _punchSoundQueue = Future<void>.value();
 
   CameraController? _cameraController;
   Timer? _attackTimer;
@@ -336,6 +339,7 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
             const Duration(milliseconds: 450)) {
       _lastPunchEvent = DateTime.now();
       if (mounted && !_isFightOver) {
+        _punchSoundQueue = _punchSoundQueue.then((_) => _playPunchSound());
         setState(() {
           _punches++;
           _enemyHealth = _enemyHealth > 12 ? _enemyHealth - 12 : 0;
@@ -355,6 +359,19 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
         now.difference(_lastScreenUpdate) > const Duration(milliseconds: 100)) {
       _lastScreenUpdate = now;
       setState(() {});
+    }
+  }
+
+  Future<void> _playPunchSound() async {
+    try {
+      await _punchPlayer.stop();
+      await _punchPlayer.play(AssetSource('soco.mp3'));
+    } on PlatformException catch (error) {
+      _setCombatMessage(
+        'Não foi possível tocar o som do soco: ${error.message ?? error.code}',
+      );
+    } on Exception catch (error) {
+      _setCombatMessage('Não foi possível tocar o som do soco: $error');
     }
   }
 
@@ -421,6 +438,7 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
     final controller = _cameraController;
     if (controller != null) unawaited(controller.dispose());
     unawaited(_poseDetector.close());
+    unawaited(_punchSoundQueue.then((_) => _punchPlayer.dispose()));
     super.dispose();
   }
 
