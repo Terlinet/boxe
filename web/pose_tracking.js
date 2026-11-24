@@ -95,15 +95,21 @@
         const landmarks = results.poseLandmarks;
         const nose = landmarks?.[0];
         if (!landmarks || !nose) {
-          callback?.(-1, 0, false, false, false);
+          callback?.(-1, 0, -1, -1, -1, -1, false, false, false);
           return;
         }
 
         const leftArmExtended = isArmExtended(landmarks, 11, 13, 15);
         const rightArmExtended = isArmExtended(landmarks, 12, 14, 16);
+        const leftWrist = landmarks[15];
+        const rightWrist = landmarks[16];
         callback?.(
           nose.x,
           nose.visibility ?? 0,
+          leftWrist?.visibility >= 0.35 ? leftWrist.x : -1,
+          leftWrist?.visibility >= 0.35 ? leftWrist.y : -1,
+          rightWrist?.visibility >= 0.35 ? rightWrist.x : -1,
+          rightWrist?.visibility >= 0.35 ? rightWrist.y : -1,
           leftArmExtended,
           rightArmExtended,
           true,

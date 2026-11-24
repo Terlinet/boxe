@@ -68,6 +68,10 @@ class _WebPoseTrackingController implements PoseTrackingController {
   void _receivePose(
     JSNumber headX,
     JSNumber visibility,
+    JSNumber leftHandX,
+    JSNumber leftHandY,
+    JSNumber rightHandX,
+    JSNumber rightHandY,
     JSBoolean leftArmExtended,
     JSBoolean rightArmExtended,
     JSBoolean hasPose,
@@ -90,9 +94,22 @@ class _WebPoseTrackingController implements PoseTrackingController {
         headX: 1 - headX.toDartDouble,
         leftArmExtended: leftArmExtended.toDart,
         rightArmExtended: rightArmExtended.toDart,
+        leftHand: _normalizedHandPosition(
+          leftHandX.toDartDouble,
+          leftHandY.toDartDouble,
+        ),
+        rightHand: _normalizedHandPosition(
+          rightHandX.toDartDouble,
+          rightHandY.toDartDouble,
+        ),
       ),
     );
     _onStatus('Pessoa detectada · gestos habilitados');
+  }
+
+  Offset? _normalizedHandPosition(double x, double y) {
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return Offset(1 - x, y);
   }
 
   @override

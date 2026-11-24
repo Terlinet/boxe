@@ -5,11 +5,15 @@ class TrackedPose {
     required this.headX,
     required this.leftArmExtended,
     required this.rightArmExtended,
+    this.leftHand,
+    this.rightHand,
   });
 
   final double headX;
   final bool leftArmExtended;
   final bool rightArmExtended;
+  final Offset? leftHand;
+  final Offset? rightHand;
 }
 
 typedef TrackedPoseCallback = void Function(TrackedPose? pose);

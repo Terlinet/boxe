@@ -47,6 +47,8 @@ class _FightScreenState extends State<FightScreen>
   String _combatMessage = 'Posicione-se diante da câmera';
   double? _headCenter;
   double _headOffset = 0;
+  Offset? _leftHandPosition;
+  Offset? _rightHandPosition;
   DateTime _lastHeadEvent = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastPunchEvent = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastScreenUpdate = DateTime.fromMillisecondsSinceEpoch(0);
@@ -251,10 +253,17 @@ class _FightScreenState extends State<FightScreen>
       }
       final poses = await _poseDetector.processImage(inputImage);
       if (poses.isEmpty) {
+        _leftHandPosition = null;
+        _rightHandPosition = null;
         _setCameraStatus('Câmera ativa · mostre o rosto e os braços');
+        _refreshFightView();
       } else {
         _setCameraStatus('Pessoa detectada · movimentos habilitados');
-        _recognizeGestures(poses.first, image.width.toDouble());
+        _recognizeGestures(
+          poses.first,
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
       }
     } on PlatformException catch (error) {
       _setCameraStatus(
@@ -335,15 +344,29 @@ class _FightScreenState extends State<FightScreen>
     return output;
   }
 
-  void _recognizeGestures(Pose pose, double frameWidth) {
+  void _recognizeGestures(Pose pose, double frameWidth, double frameHeight) {
     final nose = pose.landmarks[PoseLandmarkType.nose];
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+    _leftHandPosition = _normalizedHandPosition(
+      pose.landmarks[PoseLandmarkType.leftWrist],
+      frameWidth,
+      frameHeight,
+    );
+    _rightHandPosition = _normalizedHandPosition(
+      pose.landmarks[PoseLandmarkType.rightWrist],
+      frameWidth,
+      frameHeight,
+    );
     if (nose != null) {
       _handleHeadPosition(nose.x / frameWidth);
     }
 
-    if (leftShoulder == null || rightShoulder == null) return;
+    if (leftShoulder == null || rightShoulder == null) {
+      _recognizeArmExtensions(false, false);
+      _refreshFightView();
+      return;
+    }
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     if (shoulderWidth <= 0) return;
     final leftExtended = _isArmExtended(
@@ -362,6 +385,10 @@ class _FightScreenState extends State<FightScreen>
     );
     _recognizeArmExtensions(leftExtended, rightExtended);
 
+    _refreshFightView();
+  }
+
+  void _refreshFightView() {
     final now = DateTime.now();
     if (mounted &&
         now.difference(_lastScreenUpdate) > const Duration(milliseconds: 100)) {
@@ -375,11 +402,16 @@ class _FightScreenState extends State<FightScreen>
     if (pose == null) {
       _leftArmExtended = false;
       _rightArmExtended = false;
+      _leftHandPosition = null;
+      _rightHandPosition = null;
+      _refreshFightView();
       return;
     }
 
     _setCameraStatus('Pessoa detectada · gestos habilitados');
     _handleHeadPosition(pose.headX);
+    _leftHandPosition = pose.leftHand;
+    _rightHandPosition = pose.rightHand;
     _recognizeArmExtensions(pose.leftArmExtended, pose.rightArmExtended);
 
     final now = DateTime.now();
@@ -387,6 +419,28 @@ class _FightScreenState extends State<FightScreen>
       _lastScreenUpdate = now;
       setState(() {});
     }
+  }
+
+  Offset? _normalizedHandPosition(
+    PoseLandmark? landmark,
+    double frameWidth,
+    double frameHeight,
+  ) {
+    if (landmark == null ||
+        landmark.likelihood < 0.35 ||
+        frameWidth <= 0 ||
+        frameHeight <= 0) {
+      return null;
+    }
+    final normalizedX = landmark.x / frameWidth;
+    final normalizedY = landmark.y / frameHeight;
+    if (normalizedX < 0 ||
+        normalizedX > 1 ||
+        normalizedY < 0 ||
+        normalizedY > 1) {
+      return null;
+    }
+    return Offset(1 - normalizedX, normalizedY);
   }
 
   void _handleHeadPosition(double headX) {
@@ -555,6 +609,8 @@ class _FightScreenState extends State<FightScreen>
                         enemyAttacking: _enemyAttacking,
                         playerPunchProgress: _punchAnimationController.value,
                         playerPunchLeft: _playerPunchLeft,
+                        leftHandPosition: _leftHandPosition,
+                        rightHandPosition: _rightHandPosition,
                         enemyHealth: _enemyHealth,
                       ),
                       child: child,
@@ -807,6 +863,8 @@ class BoxingRingPainter extends CustomPainter {
     required this.enemyAttacking,
     required this.playerPunchProgress,
     required this.playerPunchLeft,
+    required this.leftHandPosition,
+    required this.rightHandPosition,
     required this.enemyHealth,
   });
 
@@ -814,6 +872,8 @@ class BoxingRingPainter extends CustomPainter {
   final bool enemyAttacking;
   final double playerPunchProgress;
   final bool playerPunchLeft;
+  final Offset? leftHandPosition;
+  final Offset? rightHandPosition;
   final int enemyHealth;
 
   @override
@@ -902,6 +962,8 @@ class BoxingRingPainter extends CustomPainter {
       size,
       progress: playerPunchProgress,
       leftPunch: playerPunchLeft,
+      leftHandPosition: leftHandPosition,
+      rightHandPosition: rightHandPosition,
     );
 
     if (enemyHealth == 0) {
@@ -1023,6 +1085,8 @@ class BoxingRingPainter extends CustomPainter {
     Size size, {
     required double progress,
     required bool leftPunch,
+    required Offset? leftHandPosition,
+    required Offset? rightHandPosition,
   }) {
     final block = math.min(size.width * 0.018, size.height * 0.035);
     final centerX = size.width / 2;
@@ -1036,14 +1100,23 @@ class BoxingRingPainter extends CustomPainter {
       final side = isLeft ? -1.0 : 1.0;
       final striking = isLeft == leftPunch;
       final movement = striking ? punch : punch * 0.12;
+      final trackedHand = isLeft ? leftHandPosition : rightHandPosition;
       final restCenter = Offset(
         centerX + side * size.width * 0.25,
         size.height * 0.86,
       );
-      final gloveCenter = Offset(
-        restCenter.dx + (centerX - restCenter.dx) * movement * 0.72,
-        restCenter.dy - size.height * movement * 0.24,
-      );
+      final trackedCenter = trackedHand == null
+          ? restCenter
+          : Offset(
+              trackedHand.dx * size.width,
+              size.height * (0.2 + trackedHand.dy * 0.72),
+            );
+      final gloveCenter =
+          Offset.lerp(restCenter, trackedCenter, 0.88)! +
+          Offset(
+            (centerX - restCenter.dx) * movement * 0.28,
+            -size.height * movement * 0.08,
+          );
       final armStart = Offset(
         centerX + side * size.width * 0.38,
         size.height * 0.98,
@@ -1098,5 +1171,7 @@ class BoxingRingPainter extends CustomPainter {
       oldDelegate.enemyAttacking != enemyAttacking ||
       oldDelegate.playerPunchProgress != playerPunchProgress ||
       oldDelegate.playerPunchLeft != playerPunchLeft ||
+      oldDelegate.leftHandPosition != leftHandPosition ||
+      oldDelegate.rightHandPosition != rightHandPosition ||
       oldDelegate.enemyHealth != enemyHealth;
 }
