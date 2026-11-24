@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
+import 'pose_tracking.dart';
+
 class FightScreen extends StatefulWidget {
   const FightScreen({super.key});
 
@@ -21,6 +23,7 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
   );
   final AudioPlayer _punchPlayer = AudioPlayer();
   Future<void> _punchSoundQueue = Future<void>.value();
+  PoseTrackingController? _webPoseController;
 
   CameraController? _cameraController;
   Timer? _attackTimer;
@@ -53,7 +56,13 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (_supportsPoseDetection) {
+    if (kIsWeb) {
+      _webPoseController = createPoseTrackingController(
+        onPose: _onWebPose,
+        onStatus: _setCameraStatus,
+      );
+      unawaited(_startWebTracking());
+    } else if (_supportsPoseDetection) {
       unawaited(_startCamera());
     } else {
       _cameraStatus =
@@ -67,15 +76,37 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
+  bool get _canTrackGestures => kIsWeb || _supportsPoseDetection;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       unawaited(_stopCamera());
     } else if (state == AppLifecycleState.resumed &&
-        _supportsPoseDetection &&
+        _canTrackGestures &&
         !_isFightOver) {
-      unawaited(_startCamera());
+      unawaited(kIsWeb ? _startWebTracking() : _startCamera());
+    }
+  }
+
+  Future<void> _startWebTracking() async {
+    if (_isStartingCamera || _isDisposed || _isFightOver) return;
+    _isStartingCamera = true;
+    _setCameraStatus('Solicitando acesso à câmera...');
+    try {
+      await _webPoseController!.start();
+      if (!mounted) return;
+      setState(() {
+        _isCameraReady = true;
+        _cameraStatus = 'Câmera ativa · mostre o rosto e os braços';
+        _combatMessage = 'Desvie com a cabeça e golpeie estendendo o braço';
+      });
+      _startAttackTimer();
+    } on Exception catch (error) {
+      _setCameraStatus('Falha ao iniciar a câmera: $error');
+    } finally {
+      _isStartingCamera = false;
     }
   }
 
@@ -152,6 +183,11 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
   Future<void> _stopCamera() async {
     _attackTimer?.cancel();
     _attackWindowTimer?.cancel();
+    if (kIsWeb) {
+      await _webPoseController?.stop();
+      _isCameraReady = false;
+      return;
+    }
     final controller = _cameraController;
     _cameraController = null;
     _isCameraReady = false;
@@ -298,20 +334,11 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
     final nose = pose.landmarks[PoseLandmarkType.nose];
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-    if (leftShoulder == null || rightShoulder == null) return;
     if (nose != null) {
-      final headX = nose.x / frameWidth;
-      _headCenter ??= headX;
-      _headOffset = headX - _headCenter!;
-      final now = DateTime.now();
-      if (_headOffset.abs() > 0.075 &&
-          now.difference(_lastHeadEvent) > const Duration(milliseconds: 700)) {
-        _lastHeadEvent = now;
-        if (_enemyAttacking) _dodgedCurrentAttack = true;
-        _setCombatMessage(_enemyAttacking ? 'ESQUIVA!' : 'Boa movimentação!');
-      }
+      _handleHeadPosition(nose.x / frameWidth);
     }
 
+    if (leftShoulder == null || rightShoulder == null) return;
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     if (shoulderWidth <= 0) return;
     final leftExtended = _isArmExtended(
@@ -328,31 +355,7 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
       wrist: PoseLandmarkType.rightWrist,
       shoulderWidth: shoulderWidth,
     );
-    final punched =
-        (leftExtended && !_leftArmExtended) ||
-        (rightExtended && !_rightArmExtended);
-    _leftArmExtended = leftExtended;
-    _rightArmExtended = rightExtended;
-
-    if (punched &&
-        DateTime.now().difference(_lastPunchEvent) >
-            const Duration(milliseconds: 450)) {
-      _lastPunchEvent = DateTime.now();
-      if (mounted && !_isFightOver) {
-        _punchSoundQueue = _punchSoundQueue.then((_) => _playPunchSound());
-        setState(() {
-          _punches++;
-          _enemyHealth = _enemyHealth > 12 ? _enemyHealth - 12 : 0;
-          _playerPunching = true;
-          _combatMessage = _isFightOver ? 'Nocaute! Você venceu!' : 'DIRETO!';
-        });
-        _punchAnimationTimer?.cancel();
-        _punchAnimationTimer = Timer(const Duration(milliseconds: 300), () {
-          if (mounted) setState(() => _playerPunching = false);
-        });
-        if (_isFightOver) unawaited(_stopCamera());
-      }
-    }
+    _recognizeArmExtensions(leftExtended, rightExtended);
 
     final now = DateTime.now();
     if (mounted &&
@@ -360,6 +363,70 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
       _lastScreenUpdate = now;
       setState(() {});
     }
+  }
+
+  void _onWebPose(TrackedPose? pose) {
+    if (!mounted || _isDisposed) return;
+    if (pose == null) {
+      _leftArmExtended = false;
+      _rightArmExtended = false;
+      return;
+    }
+
+    _setCameraStatus('Pessoa detectada · gestos habilitados');
+    _handleHeadPosition(pose.headX);
+    _recognizeArmExtensions(pose.leftArmExtended, pose.rightArmExtended);
+
+    final now = DateTime.now();
+    if (now.difference(_lastScreenUpdate) > const Duration(milliseconds: 100)) {
+      _lastScreenUpdate = now;
+      setState(() {});
+    }
+  }
+
+  void _handleHeadPosition(double headX) {
+    _headCenter ??= headX;
+    _headOffset = headX - _headCenter!;
+    final now = DateTime.now();
+    if (_headOffset.abs() > 0.075 &&
+        now.difference(_lastHeadEvent) > const Duration(milliseconds: 700)) {
+      _lastHeadEvent = now;
+      if (_enemyAttacking) _dodgedCurrentAttack = true;
+      _setCombatMessage(_enemyAttacking ? 'ESQUIVA!' : 'Boa movimentação!');
+    }
+  }
+
+  void _recognizeArmExtensions(bool leftExtended, bool rightExtended) {
+    final punched =
+        (leftExtended && !_leftArmExtended) ||
+        (rightExtended && !_rightArmExtended);
+    _leftArmExtended = leftExtended;
+    _rightArmExtended = rightExtended;
+
+    if (punched) _registerPunch();
+  }
+
+  void _registerPunch() {
+    if (DateTime.now().difference(_lastPunchEvent) <=
+            const Duration(milliseconds: 450) ||
+        !mounted ||
+        _isFightOver) {
+      return;
+    }
+
+    _lastPunchEvent = DateTime.now();
+    _punchSoundQueue = _punchSoundQueue.then((_) => _playPunchSound());
+    setState(() {
+      _punches++;
+      _enemyHealth = _enemyHealth > 12 ? _enemyHealth - 12 : 0;
+      _playerPunching = true;
+      _combatMessage = _isFightOver ? 'Nocaute! Você venceu!' : 'DIRETO!';
+    });
+    _punchAnimationTimer?.cancel();
+    _punchAnimationTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _playerPunching = false);
+    });
+    if (_isFightOver) unawaited(_stopCamera());
   }
 
   Future<void> _playPunchSound() async {
@@ -437,7 +504,12 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
     _punchAnimationTimer?.cancel();
     final controller = _cameraController;
     if (controller != null) unawaited(controller.dispose());
-    unawaited(_poseDetector.close());
+    if (kIsWeb) {
+      final webPoseController = _webPoseController;
+      if (webPoseController != null) unawaited(webPoseController.dispose());
+    } else {
+      unawaited(_poseDetector.close());
+    }
     unawaited(_punchSoundQueue.then((_) => _punchPlayer.dispose()));
     super.dispose();
   }
@@ -524,9 +596,13 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  if (!_isCameraReady && _supportsPoseDetection)
+                  if (!_isCameraReady && _canTrackGestures)
                     TextButton(
-                      onPressed: _isStartingCamera ? null : _startCamera,
+                      onPressed: _isStartingCamera
+                          ? null
+                          : kIsWeb
+                          ? _startWebTracking
+                          : _startCamera,
                       child: const Text('TENTAR'),
                     ),
                 ],
@@ -611,7 +687,9 @@ class _FightScreenState extends State<FightScreen> with WidgetsBindingObserver {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (ready)
+          if (kIsWeb && _isCameraReady)
+            _webPoseController!.buildPreview()
+          else if (ready)
             CameraPreview(controller)
           else
             const Center(
