@@ -889,15 +889,14 @@ class BoxingRingPainter extends CustomPainter {
       );
     }
 
-    final opponentX = (centerX - headOffset * width * 0.65)
-        .clamp(width * 0.3, width * 0.7)
-        .toDouble();
+    final opponentX = centerX;
     _drawOpponent(
       canvas,
       Offset(opponentX, height * (enemyAttacking ? 0.42 : 0.39)),
       scale: width * (enemyAttacking ? 0.0058 : 0.0052),
       attacking: enemyAttacking,
     );
+    _drawPlayerHead(canvas, size, headOffset);
     _drawPlayerGloves(
       canvas,
       size,
@@ -924,6 +923,46 @@ class BoxingRingPainter extends CustomPainter {
         knockout,
       );
     }
+  }
+
+  void _drawPlayerHead(Canvas canvas, Size size, double headOffset) {
+    final block = math.min(size.width * 0.014, size.height * 0.027);
+    final center = Offset(
+      size.width / 2 +
+          (headOffset * size.width * 1.5).clamp(
+            -size.width * 0.18,
+            size.width * 0.18,
+          ),
+      size.height * 0.75,
+    );
+    final outline = Paint()..color = const Color(0xFF080A12);
+    final skin = Paint()..color = const Color(0xFFB97455);
+    final hair = Paint()..color = const Color(0xFF211A2B);
+    final shirt = Paint()..color = const Color(0xFF00A9A8);
+
+    void pixel(double x, double y, double w, double h, Paint paint) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          center.dx + x * block,
+          center.dy + y * block,
+          w * block,
+          h * block,
+        ),
+        paint,
+      );
+    }
+
+    pixel(-15, 13, 30, 11, outline);
+    pixel(-13, 14, 26, 10, shirt);
+    pixel(-7, 8, 14, 9, outline);
+    pixel(-5, 9, 10, 8, skin);
+    pixel(-9, -8, 18, 19, outline);
+    pixel(-8, -8, 16, 17, skin);
+    pixel(-10, -9, 20, 7, hair);
+    pixel(-9, -3, 3, 8, hair);
+    pixel(6, -3, 3, 8, hair);
+    pixel(-11, -2, 3, 5, outline);
+    pixel(8, -2, 3, 5, outline);
   }
 
   void _drawOpponent(
