@@ -24,6 +24,8 @@ class _FightScreenState extends State<FightScreen>
   );
   final AudioPlayer _punchPlayer = AudioPlayer();
   late final AnimationController _punchAnimationController;
+  late final AnimationController _enemyHitAnimationController;
+  late final AnimationController _playerHitAnimationController;
   Future<void> _punchSoundQueue = Future<void>.value();
   PoseTrackingController? _webPoseController;
 
@@ -61,6 +63,14 @@ class _FightScreenState extends State<FightScreen>
     _punchAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
+    );
+    _enemyHitAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _playerHitAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
     );
     WidgetsBinding.instance.addObserver(this);
     if (kIsWeb) {
@@ -231,6 +241,7 @@ class _FightScreenState extends State<FightScreen>
             _combatMessage = _isFightOver
                 ? 'Nocaute! A luta terminou.'
                 : 'Você foi atingido! Mova a cabeça para os lados.';
+            unawaited(_animatePlayerHit());
           }
         });
         if (_isFightOver) unawaited(_stopCamera());
@@ -481,6 +492,7 @@ class _FightScreenState extends State<FightScreen>
       _combatMessage = _isFightOver ? 'Nocaute! Você venceu!' : 'DIRETO!';
     });
     unawaited(_animatePlayerPunch());
+    unawaited(_animateEnemyHit());
     if (_isFightOver) unawaited(_stopCamera());
   }
 
@@ -488,6 +500,20 @@ class _FightScreenState extends State<FightScreen>
     await _punchAnimationController.forward(from: 0);
     if (mounted && !_isDisposed) {
       await _punchAnimationController.reverse();
+    }
+  }
+
+  Future<void> _animateEnemyHit() async {
+    await _enemyHitAnimationController.forward(from: 0);
+    if (mounted && !_isDisposed) {
+      await _enemyHitAnimationController.reverse();
+    }
+  }
+
+  Future<void> _animatePlayerHit() async {
+    await _playerHitAnimationController.forward(from: 0);
+    if (mounted && !_isDisposed) {
+      await _playerHitAnimationController.reverse();
     }
   }
 
@@ -564,6 +590,8 @@ class _FightScreenState extends State<FightScreen>
     _attackTimer?.cancel();
     _attackWindowTimer?.cancel();
     _punchAnimationController.dispose();
+    _enemyHitAnimationController.dispose();
+    _playerHitAnimationController.dispose();
     final controller = _cameraController;
     if (controller != null) unawaited(controller.dispose());
     if (kIsWeb) {
@@ -602,7 +630,11 @@ class _FightScreenState extends State<FightScreen>
                     ),
                   ),
                   child: AnimatedBuilder(
-                    animation: _punchAnimationController,
+                    animation: Listenable.merge([
+                      _punchAnimationController,
+                      _enemyHitAnimationController,
+                      _playerHitAnimationController,
+                    ]),
                     builder: (context, child) => CustomPaint(
                       painter: BoxingRingPainter(
                         headOffset: _headOffset,
@@ -612,6 +644,8 @@ class _FightScreenState extends State<FightScreen>
                         leftHandPosition: _leftHandPosition,
                         rightHandPosition: _rightHandPosition,
                         enemyHealth: _enemyHealth,
+                        enemyHitProgress: _enemyHitAnimationController.value,
+                        playerHitProgress: _playerHitAnimationController.value,
                       ),
                       child: child,
                     ),
@@ -866,6 +900,8 @@ class BoxingRingPainter extends CustomPainter {
     required this.leftHandPosition,
     required this.rightHandPosition,
     required this.enemyHealth,
+    required this.enemyHitProgress,
+    required this.playerHitProgress,
   });
 
   final double headOffset;
@@ -875,6 +911,8 @@ class BoxingRingPainter extends CustomPainter {
   final Offset? leftHandPosition;
   final Offset? rightHandPosition;
   final int enemyHealth;
+  final double enemyHitProgress;
+  final double playerHitProgress;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -965,6 +1003,22 @@ class BoxingRingPainter extends CustomPainter {
       leftHandPosition: leftHandPosition,
       rightHandPosition: rightHandPosition,
     );
+    _drawImpact(
+      canvas,
+      Offset(opponentX, height * 0.39),
+      enemyHitProgress,
+      width,
+    );
+    _drawImpact(
+      canvas,
+      Offset(
+        centerX +
+            (headOffset * width * 1.5).clamp(-width * 0.18, width * 0.18),
+        height * 0.75,
+      ),
+      playerHitProgress,
+      width,
+    );
 
     if (enemyHealth == 0) {
       final knockout = Paint()..color = const Color(0xFFFFCC00);
@@ -985,6 +1039,31 @@ class BoxingRingPainter extends CustomPainter {
         knockout,
       );
     }
+  }
+
+  void _drawImpact(
+    Canvas canvas,
+    Offset center,
+    double progress,
+    double width,
+  ) {
+    if (progress <= 0) return;
+    final eased = Curves.easeOut.transform(progress);
+    final radius = width * (0.025 + eased * 0.055);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = const Color(0xFFFFFFFF).withOpacity((1 - eased) * 0.82)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(2, width * 0.006),
+    );
+    canvas.drawCircle(
+      center,
+      radius * 0.38,
+      Paint()
+        ..color = const Color(0xFFFFCC00).withOpacity((1 - eased) * 0.9),
+    );
   }
 
   void _drawPlayerHead(Canvas canvas, Size size, double headOffset) {
@@ -1074,9 +1153,12 @@ class BoxingRingPainter extends CustomPainter {
     rect(-12, -15, 4, 4, glove);
     rect(8, -15, 4, 4, glove);
     if (attacking) {
-      rect(7, -14, 8, 3, outline);
-      rect(9, -13, 8, 4, glove);
-      rect(13, -12, 2, 2, Paint()..color = const Color(0xFFFFA09C));
+      rect(-10, -18, 18, 4, outline);
+      rect(-8, -17, 18, 3, glove);
+      rect(7, -19, 17, 5, outline);
+      rect(9, -18, 17, 4, glove);
+      rect(23, -17, 4, 3, Paint()..color = const Color(0xFFFFA09C));
+      rect(-24, -17, 4, 3, Paint()..color = const Color(0xFFFFA09C));
     }
   }
 
@@ -1111,12 +1193,21 @@ class BoxingRingPainter extends CustomPainter {
               trackedHand.dx * size.width,
               size.height * (0.2 + trackedHand.dy * 0.72),
             );
-      final gloveCenter =
-          Offset.lerp(restCenter, trackedCenter, 0.88)! +
-          Offset(
-            (centerX - restCenter.dx) * movement * 0.28,
-            -size.height * movement * 0.08,
-          );
+      final enemyTarget = Offset(
+        centerX + (isLeft ? -size.width * 0.045 : size.width * 0.045),
+        size.height * 0.42,
+      );
+      final gloveCenter = striking
+          ? Offset.lerp(
+              Offset.lerp(restCenter, trackedCenter, 0.88)!,
+              enemyTarget,
+              punch,
+            )!
+          : Offset.lerp(restCenter, trackedCenter, 0.88)! +
+              Offset(
+                (centerX - restCenter.dx) * movement * 0.28,
+                -size.height * movement * 0.08,
+              );
       final armStart = Offset(
         centerX + side * size.width * 0.38,
         size.height * 0.98,
@@ -1173,5 +1264,7 @@ class BoxingRingPainter extends CustomPainter {
       oldDelegate.playerPunchLeft != playerPunchLeft ||
       oldDelegate.leftHandPosition != leftHandPosition ||
       oldDelegate.rightHandPosition != rightHandPosition ||
-      oldDelegate.enemyHealth != enemyHealth;
+      oldDelegate.enemyHealth != enemyHealth ||
+      oldDelegate.enemyHitProgress != enemyHitProgress ||
+      oldDelegate.playerHitProgress != playerHitProgress;
 }
