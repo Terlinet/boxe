@@ -18,7 +18,7 @@ class FightScreen extends StatefulWidget {
 }
 
 class _FightScreenState extends State<FightScreen>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   final PoseDetector _poseDetector = PoseDetector(
     options: PoseDetectorOptions(mode: PoseDetectionMode.stream),
   );
@@ -1067,7 +1067,6 @@ class BoxingRingPainter extends CustomPainter {
   }
 
   void _drawPlayerHead(Canvas canvas, Size size, double headOffset) {
-    final block = math.min(size.width * 0.014, size.height * 0.027);
     final center = Offset(
       size.width / 2 +
           (headOffset * size.width * 1.5).clamp(
@@ -1076,34 +1075,113 @@ class BoxingRingPainter extends CustomPainter {
           ),
       size.height * 0.75,
     );
-    final outline = Paint()..color = const Color(0xFF080A12);
-    final skin = Paint()..color = const Color(0xFFB97455);
-    final hair = Paint()..color = const Color(0xFF211A2B);
-    final shirt = Paint()..color = const Color(0xFF00A9A8);
+    final unit = math.min(size.width * 0.012, size.height * 0.022);
+    final headLean =
+        headOffset.clamp(-1.0, 1.0).toDouble() * unit * 1.8;
+    final backOfHead = center.translate(headLean, -unit * 4);
 
-    void pixel(double x, double y, double w, double h, Paint paint) {
-      canvas.drawRect(
-        Rect.fromLTWH(
-          center.dx + x * block,
-          center.dy + y * block,
-          w * block,
-          h * block,
-        ),
-        paint,
+    canvas.save();
+    canvas.translate(backOfHead.dx, backOfHead.dy);
+    canvas.rotate(headLean / (unit * 18));
+    canvas.translate(-backOfHead.dx, -backOfHead.dy);
+
+    final neckRect = Rect.fromCenter(
+      center: center.translate(headLean, unit * 7),
+      width: unit * 10,
+      height: unit * 14,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(neckRect, Radius.circular(unit * 3)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [Color(0xFFB57B60), Color(0xFF7F5041)],
+        ).createShader(neckRect),
+    );
+
+    final headRect = Rect.fromCenter(
+      center: backOfHead,
+      width: unit * 20,
+      height: unit * 22,
+    );
+    canvas.drawOval(
+      headRect.inflate(unit * 1),
+      Paint()..color = const Color(0xFF090B12).withOpacity(0.58),
+    );
+    canvas.drawOval(
+      headRect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.25, -0.45),
+          radius: 0.95,
+          colors: const [
+            Color(0xFFD9A789),
+            Color(0xFFBC8063),
+            Color(0xFF855744),
+          ],
+        ).createShader(headRect),
+    );
+
+    final hairRect = Rect.fromCenter(
+      center: backOfHead.translate(0, -unit * 6),
+      width: unit * 20,
+      height: unit * 11,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(hairRect, Radius.circular(unit * 5)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [Color(0xFF211A28), Color(0xFF121019)],
+        ).createShader(hairRect),
+    );
+
+    final hairLinePaint = Paint()
+      ..color = const Color(0xFF352B3C).withOpacity(0.7)
+      ..strokeWidth = unit * 0.55
+      ..strokeCap = StrokeCap.round;
+    for (var i = -3; i <= 3; i++) {
+      final start = backOfHead.translate(i * unit * 2.2, -unit * 8);
+      canvas.drawLine(
+        start,
+        start.translate(-unit * 0.7, unit * 5),
+        hairLinePaint,
       );
     }
 
-    pixel(-15, 13, 30, 11, outline);
-    pixel(-13, 14, 26, 10, shirt);
-    pixel(-7, 8, 14, 9, outline);
-    pixel(-5, 9, 10, 8, skin);
-    pixel(-9, -8, 18, 19, outline);
-    pixel(-8, -8, 16, 17, skin);
-    pixel(-10, -9, 20, 7, hair);
-    pixel(-9, -3, 3, 8, hair);
-    pixel(6, -3, 3, 8, hair);
-    pixel(-11, -2, 3, 5, outline);
-    pixel(8, -2, 3, 5, outline);
+    final napePath = Path()
+      ..moveTo(backOfHead.dx - unit * 8, backOfHead.dy + unit * 7)
+      ..quadraticBezierTo(
+        backOfHead.dx,
+        backOfHead.dy + unit * 12,
+        backOfHead.dx + unit * 8,
+        backOfHead.dy + unit * 7,
+      );
+    canvas.drawPath(
+      napePath,
+      Paint()
+        ..color = const Color(0xFF17131D)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = unit * 1,
+    );
+    canvas.restore();
+
+    final shoulderRect = Rect.fromCenter(
+      center: center.translate(0, unit * 16),
+      width: unit * 34,
+      height: unit * 15,
+    );
+    canvas.drawOval(
+      shoulderRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [Color(0xFF19C5C4), Color(0xFF08767A)],
+        ).createShader(shoulderRect),
+    );
   }
 
   void _drawOpponent(
@@ -1112,53 +1190,180 @@ class BoxingRingPainter extends CustomPainter {
     required double scale,
     required bool attacking,
   }) {
-    final block = scale;
-    final lean = attacking ? block * 3 : 0.0;
-    final outline = Paint()..color = const Color(0xFF070913);
-    final shorts = Paint()..color = const Color(0xFF00B8BE);
-    final skin = Paint()..color = const Color(0xFFFFC184);
-    final glove = Paint()..color = const Color(0xFFFF244F);
-    final shoe = Paint()..color = const Color(0xFFF4E7C4);
+    final unit = scale;
+    final lean = attacking ? unit * 2.5 : 0.0;
+    final shadowRect = Rect.fromCenter(
+      center: center.translate(lean, unit * 12),
+      width: unit * 38,
+      height: unit * 8,
+    );
+    canvas.drawOval(
+      shadowRect,
+      Paint()..color = const Color(0xFF05070D).withOpacity(0.55),
+    );
 
-    void rect(double x, double y, double w, double h, Paint paint) {
-      canvas.drawRect(
-        Rect.fromLTWH(
-          center.dx + x * block + lean,
-          center.dy + y * block,
-          w * block,
-          h * block,
+    final skinRect = Rect.fromCenter(
+      center: center.translate(lean, -unit * 20),
+      width: unit * 17,
+      height: unit * 22,
+    );
+    canvas.drawOval(
+      skinRect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.45),
+          radius: 0.95,
+          colors: const [
+            Color(0xFFFFD2A4),
+            Color(0xFFE5A76F),
+            Color(0xFFA96E48),
+          ],
+        ).createShader(skinRect),
+    );
+
+    final hairPath = Path()
+      ..addOval(
+        Rect.fromCenter(
+          center: center.translate(lean, -unit * 28),
+          width: unit * 18,
+          height: unit * 9,
         ),
-        paint,
+      );
+    canvas.drawPath(hairPath, Paint()..color = const Color(0xFF24151F));
+
+    for (final side in [-1.0, 1.0]) {
+      final eye = center.translate(lean + side * unit * 4, -unit * 21);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: eye,
+          width: unit * 4.5,
+          height: unit * 1.8,
+        ),
+        Paint()..color = const Color(0xFFE6E4D4),
+      );
+      canvas.drawCircle(
+        eye,
+        unit * 0.8,
+        Paint()..color = const Color(0xFF20191B),
+      );
+      canvas.drawLine(
+        eye.translate(-unit * 2.5, -unit * 1.5),
+        eye.translate(unit * 2.5, -unit * 1.5),
+        Paint()
+          ..color = const Color(0xFF3A2424)
+          ..strokeWidth = unit * 0.55
+          ..strokeCap = StrokeCap.round,
       );
     }
 
-    rect(-8, -27, 16, 8, outline);
-    rect(-7, -26, 14, 8, skin);
-    rect(-8, -28, 16, 3, Paint()..color = const Color(0xFF54314D));
-    rect(-2, -23, 2, 1, outline);
-    rect(4, -23, 2, 1, outline);
-    rect(-5, -18, 10, 4, outline);
-    rect(-7, -16, 14, 15, Paint()..color = const Color(0xFFFFCC00));
-    rect(-9, -15, 3, 10, skin);
-    rect(6, -15, 3, 10, skin);
-    rect(-8, -12, 16, 10, outline);
-    rect(-7, -11, 14, 9, Paint()..color = const Color(0xFFDA1642));
-    rect(-8, -3, 16, 5, shorts);
-    rect(-7, 2, 5, 8, outline);
-    rect(2, 2, 5, 8, outline);
-    rect(-8, 9, 7, 2, shoe);
-    rect(2, 9, 7, 2, shoe);
-    rect(-12, -16, 4, 5, outline);
-    rect(8, -16, 4, 5, outline);
-    rect(-12, -15, 4, 4, glove);
-    rect(8, -15, 4, 4, glove);
-    if (attacking) {
-      rect(-10, -18, 18, 4, outline);
-      rect(-8, -17, 18, 3, glove);
-      rect(7, -19, 17, 5, outline);
-      rect(9, -18, 17, 4, glove);
-      rect(23, -17, 4, 3, Paint()..color = const Color(0xFFFFA09C));
-      rect(-24, -17, 4, 3, Paint()..color = const Color(0xFFFFA09C));
+    canvas.drawLine(
+      center.translate(lean, -unit * 20),
+      center.translate(lean, -unit * 13),
+      Paint()
+        ..color = const Color(0xFF9B6749)
+        ..strokeWidth = unit * 0.75
+        ..strokeCap = StrokeCap.round,
+    );
+
+    final torsoRect = Rect.fromCenter(
+      center: center.translate(lean, -unit * 7),
+      width: unit * 22,
+      height: unit * 24,
+    );
+    canvas.drawOval(
+      torsoRect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.45),
+          radius: 1,
+          colors: const [
+            Color(0xFFFFD782),
+            Color(0xFFDDA64E),
+            Color(0xFF8C5A30),
+          ],
+        ).createShader(torsoRect),
+    );
+    canvas.drawLine(
+      center.translate(lean, -unit * 15),
+      center.translate(lean, unit * 2),
+      Paint()
+        ..color = const Color(0xFF9B702F).withOpacity(0.75)
+        ..strokeWidth = unit * 0.7,
+    );
+
+    final shortsRect = Rect.fromCenter(
+      center: center.translate(lean, unit * 8),
+      width: unit * 25,
+      height: unit * 12,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(shortsRect, Radius.circular(unit * 2)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: const [Color(0xFF38CED0), Color(0xFF08777B)],
+        ).createShader(shortsRect),
+    );
+
+    for (final side in [-1.0, 1.0]) {
+      final legRect = Rect.fromCenter(
+        center: center.translate(lean + side * unit * 6, unit * 15),
+        width: unit * 7,
+        height: unit * 13,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(legRect, Radius.circular(unit * 2)),
+        Paint()
+          ..shader = LinearGradient(
+            colors: const [Color(0xFFF0B477), Color(0xFFA96943)],
+          ).createShader(legRect),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: center.translate(lean + side * unit * 6, unit * 22),
+            width: unit * 10,
+            height: unit * 3,
+          ),
+          Radius.circular(unit),
+        ),
+        Paint()..color = const Color(0xFFF2EAD5),
+      );
+
+      final gloveCenter = center.translate(
+        lean + side * (attacking ? unit * 16 : unit * 13),
+        attacking ? -unit * 15 : -unit * 12,
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: gloveCenter.translate(0, unit),
+          width: unit * 9,
+          height: unit * 7,
+        ),
+        Paint()..color = const Color(0xFF080A12),
+      );
+      final gloveRect = Rect.fromCenter(
+        center: gloveCenter,
+        width: unit * 8,
+        height: unit * 6,
+      );
+      canvas.drawOval(
+        gloveRect,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.3, -0.5),
+            colors: const [Color(0xFFFF6B84), Color(0xFFE51B49)],
+          ).createShader(gloveRect),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: gloveCenter.translate(-unit * 2, -unit * 1.5),
+          width: unit * 3,
+          height: unit * 1.5,
+        ),
+        Paint()..color = const Color(0xFFFFBEC7).withOpacity(0.75),
+      );
     }
   }
 
@@ -1174,10 +1379,6 @@ class BoxingRingPainter extends CustomPainter {
     final centerX = size.width / 2;
     final punch = Curves.easeInOut.transform(progress);
     final outline = Paint()..color = const Color(0xFF080A12);
-    final red = Paint()..color = const Color(0xFFFF234F);
-    final shine = Paint()..color = const Color(0xFFFFA3AD);
-    final forearm = Paint()..color = const Color(0xFFBD1743);
-
     for (final isLeft in [true, false]) {
       final side = isLeft ? -1.0 : 1.0;
       final striking = isLeft == leftPunch;
@@ -1224,34 +1425,48 @@ class BoxingRingPainter extends CustomPainter {
         armStart,
         Offset(gloveCenter.dx, gloveCenter.dy + block * 1.5),
         Paint()
-          ..color = forearm.color
+          ..shader = LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: const [Color(0xFF7E102D), Color(0xFFFF234F)],
+          ).createShader(Rect.fromPoints(
+            armStart,
+            Offset(gloveCenter.dx, gloveCenter.dy + block * 1.5),
+          ))
           ..strokeWidth = block * 6
           ..strokeCap = StrokeCap.square,
       );
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: gloveCenter,
-          width: block * 11,
-          height: block * 9,
-        ),
-        outline,
+      final shadowRect = Rect.fromCenter(
+        center: gloveCenter.translate(0, block * 0.8),
+        width: block * 13,
+        height: block * 11,
       );
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: gloveCenter.translate(-side * block * 0.4, -block * 0.25),
-          width: block * 9,
-          height: block * 7,
-        ),
-        red,
+      canvas.drawOval(shadowRect, Paint()..color = outline.color);
+      final gloveRect = Rect.fromCenter(
+        center: gloveCenter,
+        width: block * 11.5,
+        height: block * 9.5,
       );
-      canvas.drawRect(
-        Rect.fromLTWH(
-          gloveCenter.dx - block * 2.8,
-          gloveCenter.dy - block * 2.3,
-          block * 3.5,
-          block * 1.6,
+      canvas.drawOval(
+        gloveRect,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.35, -0.5),
+            radius: 0.9,
+            colors: const [
+              Color(0xFFFF7C91),
+              Color(0xFFFF234F),
+              Color(0xFF9F1235),
+            ],
+          ).createShader(gloveRect),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: gloveCenter.translate(-side * block * 2.2, -block * 2.3),
+          width: block * 4.2,
+          height: block * 2,
         ),
-        shine,
+        Paint()..color = const Color(0xFFFFB8C2).withOpacity(0.82),
       );
     }
   }
